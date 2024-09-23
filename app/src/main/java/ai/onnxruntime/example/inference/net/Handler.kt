@@ -13,9 +13,16 @@ import ai.onnxruntime.example.inference.MainActivity
 import ai.onnxruntime.example.inference.model.Ort
 import ai.onnxruntime.example.inference.template.NetworkIn
 import ai.onnxruntime.example.inference.template.NetworkOut
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.msgpack.core.MessageBufferPacker
 import org.msgpack.core.MessageUnpacker
 import org.msgpack.value.ArrayValue
+import java.lang.Thread.sleep
 import java.nio.ByteBuffer
 
 class Handler(var bytes: ByteArray?,val mainActivity: MainActivity) {
@@ -25,7 +32,7 @@ class Handler(var bytes: ByteArray?,val mainActivity: MainActivity) {
     private val ort = Ort
 init {7
 
-    mStatus.timeCounter.startDecode()
+
     var deocodedMessage:Map<String,Any> =decodeMessagePack(bytes!!)
 
     bytes = null
@@ -35,24 +42,64 @@ init {7
         var value:Map<String,Any> = deocodedMessage.get("data") as Map<String, Any>
         when(deocodedMessage.get("type")){
             "config"->{
-                mStatus.timeCounter.endDecode()
+
                 mStatus.setMConfig(convertMapToClass(value,MConfig::class.java))
 
-                ort.load_model(mStatus.getMConfig()!!.model!!.model_name!!)
+
                 logger.info("Config set from server")
             }
             "data"->{
-                handleData(value)
+                handleTest(value)
 
             }
             "callback"->{
                 mStatus.timeCounter.get_callback_time = System.currentTimeMillis()
-                mStatus.timeCounter.endDecode()
-                sendReport()
+
+
             }
             else->{
                 throw IllegalArgumentException("Unknown message type: ${deocodedMessage.get("type")}")
             }
+        }
+    }
+
+    fun handleTest(value: Map<String, Any>) {
+
+        var data_input: Map<String, Any> = value
+        mStatus.appendData(data_input)
+
+        var input: Map<String, OnnxTensor> = mStatus.getTensorData()
+        for (modelName in mStatus.getMConfig()!!.model!!.model_name!!) {
+            mStatus.timeCounter.model_name = modelName
+            ort.load_model(modelName)
+
+            for (i in 1..200) {
+                sleep(1000)
+
+
+
+
+
+
+                    mStatus.timeCounter.inference_start = System.currentTimeMillis()
+                    val res: OrtSession.Result? = ort.run_model(input)
+                    mStatus.timeCounter.inference_end = System.currentTimeMillis()
+
+
+
+
+
+                // 启动两个线程
+
+
+
+                // 发送测量结果
+                sendReport()
+
+                sleep(2000)
+            }
+
+            ort.close()
         }
     }
 
@@ -83,7 +130,7 @@ fun handleData(value: Map<String, Any>){
             if(mStatus.getDataSize()==mStatus.getMConfig()!!.network!!.`in`!!.size){
 
                 var data = mStatus.getTensorData()
-                mStatus.timeCounter.endDecode()
+
 
                 input = data
             }
@@ -94,11 +141,11 @@ fun handleData(value: Map<String, Any>){
             var res:OrtSession.Result? = ort.run_model(input )
             ort.close()
             mStatus.timeCounter.inference_end = System.currentTimeMillis()
-            mStatus.timeCounter.startEncode()
+
             var sendMap = mutableMapOf("type" to "data",
                 "data" to changeResult2Map(res!!))
             sendDataToNext(sendMap)
-            sendReport()
+
 
         }
         "msgpack"->{
@@ -122,7 +169,7 @@ fun sendDataToNext(data:MutableMap<String,Any>) {
         data["data"] = mapOf("time" to mStatus.timeCounter.get_callback_time)
     }
     var msgBytes =serializeMap(data)
-    mStatus.timeCounter.endEncode()
+
     for (network in netWorks) {
         logger.info("Sending data to ${network.to},size: ${msgBytes.size}")
         client.sendData(network.url!!, msgBytes)
@@ -204,11 +251,23 @@ fun sendDataToNext(data:MutableMap<String,Any>) {
         }
     }
 
+    fun changeResult2OnnxMap(result: OrtSession.Result): Map<String, OnnxTensor> {
+        val resultMap = mutableMapOf<String, OnnxTensor>()
 
+        for ((key, value) in result) {
+            if (value is OnnxTensor) {
+                resultMap[key] = value
+            } else {
+                throw IllegalStateException("Expected OnnxTensor, but found ${value.javaClass.simpleName} for key $key")
+            }
+        }
+
+        return resultMap
+    }
 
     fun changeResult2Map(result:OrtSession.Result):Map<String,Any>{
     var res:Map<String,Any> = result.map { (key, value) ->
-        key.substring(4) to value.value
+        key to value.value
     }.toMap()
     return res
 }

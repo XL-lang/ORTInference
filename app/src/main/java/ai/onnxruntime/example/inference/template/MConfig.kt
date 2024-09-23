@@ -33,7 +33,7 @@ data class NetworkOut(
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class Model(
-    val model_name: String?
+    val model_name: List<String>?,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)

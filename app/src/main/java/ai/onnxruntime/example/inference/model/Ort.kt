@@ -7,11 +7,12 @@ import ai.onnxruntime.OrtSession
 import ai.onnxruntime.example.inference.MainActivity
 import ai.onnxruntime.extensions.OrtxPackage
 import android.content.Context
+import java.lang.Thread.sleep
 import java.util.logging.Logger
 
 object Ort {
     public var ortEnv: OrtEnvironment = OrtEnvironment.getEnvironment()
-    private lateinit var ortSession: OrtSession
+    private var ortSession: OrtSession? = null
     public var mainActivity : MainActivity? = null
     private var logger = Logger.getLogger(Ort::class.java.name)
 
@@ -29,7 +30,7 @@ object Ort {
     }
 
     fun run_model(data: Map<String, OnnxTensor>): OrtSession.Result? {
-        var res = ortSession.run(data)
+        var res = ortSession!!.run(data)
         return res
 
     }
@@ -45,6 +46,7 @@ object Ort {
     }
 
     fun close(){
-        ortSession.close()
+        ortSession!!.close()
+
     }
 }
